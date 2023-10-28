@@ -1,5 +1,5 @@
 blueprint:
-  name: Aqara TRV E1 external temperature & window sensor
+  name: Links Aqara TRV E1 with an external temperature & a window contact sensor
   description: >
     Configures the Aqara TRV to receive its temperature from an external sensor.
     Every time the temperature sensor value changes it is sent to the TRV.
@@ -8,6 +8,7 @@ blueprint:
     external_temp_sensor:
       name: External temperature sensor
       description: This temperature sensor values will be synced to the TRV
+      default:
       selector:
         entity:
           filter:
@@ -17,6 +18,7 @@ blueprint:
     window_contact_sensor:
       name: External window contact sensor
       description: This window contact sensor values will be synced to the TRV
+      default:
       selector:
         entity:
           filter:
@@ -40,10 +42,30 @@ max_exceeded: silent
 variables:
   aqara_trv_device: !input aqara_trv_device
   external_temp_sensor: !input external_temp_sensor
+  window_contact_sensor: !input window_contact_sensor
 
 trigger:
-  - platform: state
+  - id: temperature
+    platform: state
     entity_id: !input external_temp_sensor
+  - id: window_open
+    platform: state
+    entity_id: !input window_contact_sensor
+    to: "on"
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 5
+    from: "off"
+  - id: window_close
+    platform: state
+    entity_id: !input window_contact_sensor
+    to: "off"
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 5
+    from: "on"
 action:
   - variables:
       aqara_trv_device_name: "{{ device_attr(aqara_trv_device, 'name') }}"
@@ -54,22 +76,52 @@ action:
           | map(attribute='entity_id') 
           | first 
         }}
-  - if:
-      - condition: template
-        value_template: "{{ not is_state(aqara_trv_select_entity, 'external')}}"
-    then:
-      - service: select.select_option
-        target:
-          entity_id: "{{aqara_trv_select_entity}}"
-        data:
-          option: external
-      - delay:
-          hours: 0
-          minutes: 0
-          seconds: 10
-          milliseconds: 0
-  - service: mqtt.publish
-    data:
-      topic: "zigbee2mqtt/{{aqara_trv_device_name}}/set/sensor_temp"
-      payload_template: >-
-        {{ (states(external_temp_sensor)|float(0)|round(1)) }}
+      aqara_trv_climate_entity: >-
+        {% set device_entities = device_entities(aqara_trv_device) %}
+        {{ expand(states['climate'])   
+          | selectattr('entity_id','in',device_entities)
+          | map(attribute='entity_id') 
+          | first 
+        }}
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: temperature
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ not is_state(aqara_trv_select_entity, 'external')}}"
+            then:
+              - service: select.select_option
+                target:
+                  entity_id: "{{aqara_trv_select_entity}}"
+                data:
+                  option: external
+              - delay:
+                  hours: 0
+                  minutes: 0
+                  seconds: 10
+                  milliseconds: 0
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{aqara_trv_device_name}}/set/sensor_temp"
+              payload_template: >-
+                {{ (states(external_temp_sensor)|float(0)|round(1)) }}
+      - conditions:
+          - condition: trigger
+            id: window_open
+        sequence:
+          - service: climate.set_preset_mode
+            data:
+              preset_mode: away
+            target:
+              entity_id: "{{aqara_trv_climate_entity}}"
+      - conditions:
+          - condition: trigger
+            id: window_close
+        sequence:
+          - service: climate.set_preset_mode
+            data:
+              preset_mode: manual
+            target:
+              entity_id: "{{aqara_trv_climate_entity}}"
