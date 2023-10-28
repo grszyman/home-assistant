@@ -8,7 +8,6 @@ blueprint:
     external_temp_sensor:
       name: External temperature sensor
       description: This temperature sensor values will be synced to the TRV
-      default:
       selector:
         entity:
           filter:
@@ -18,7 +17,6 @@ blueprint:
     window_contact_sensor:
       name: External window contact sensor
       description: This window contact sensor values will be synced to the TRV
-      default:
       selector:
         entity:
           filter:
